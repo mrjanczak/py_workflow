@@ -1,0 +1,110 @@
+
+script_file: script.inp
+script_sfx: 
+
+options:
+  check_inputs: true
+  check_script_at_submit: true
+
+_my_macro: |
+  cy = ARG1
+  tp = ARG2
+  job_name1 = ARG3
+  job_name2 = '%start%_c%cy%_t%tp%'
+  /copy,file,ldhi,results_c%cy%/restart_t%tp%, file, ldhi
+
+inital_apdl: |
+  resume,file,db
+  /prep7
+final_apdl: |
+  /solu
+  /post1
+  set,last
+  _post1_get_pene_elsi
+  finish
+
+ep_loadsteps:
+  - id: mu0
+    name: frictionless prel
+    params: {tp: mu0, job_name1: {{r.job_name1}}, job_name2: 'prel_t%tp%'}
+    apdl: |
+      /solu
+      mu,100,0
+      solve
+  - id: mu45
+    name: friction prel
+    params: {tp: mu45, job_name1: {{r.job_name1}}, job_name2: 'prel_t%tp%'}
+    apdl: |
+      /solu
+      mu,100,.45
+      solve
+  - id: cs
+    name: cold start
+    loops:  
+      - do: [CYi,1,2]
+      - do: [TPi,1,200]
+        do_params:
+        - {file: 'timepoints.csv'}
+        - {file: 'settings.csv', columns: [NSBSTP, NSBMX, NSBMN]}
+    params: {start: {{self.id}}, job_name1: {{r.job_name1}}, job_name2: '%start%_c%cy%_t%tp%'}
+    apdl: |
+      /solu
+      /input,temp_%tp%,prp,inputs/temp_%start%
+      /input,temp_%tp%,prp,inputs/pres_%start%   
+      mu,100,.45
+      solve  
+    rules:
+      forbidden_cmds:
+        - fdele
+        - ddele
+        - tbdele
+        - sfdele
+  - id: ws
+    name: warm start
+    initial_apdl: |
+      /copy,files,ldhi,results_cy1/restart_unload
+    loops:
+      - do: [CYi,3,3]
+      - do: [TPi,1,200]
+        do_params: {{self.prev.do_params}}
+    params: {start: {{self.id}}, job_name1: {{r.job_name1}}, job_name2: '%start%_c%cy%_t%tp%'}
+    apdl: {{self.prev}}
+    rules: {{self.prev}}
+
+e_loadsteps:
+  - id: cs
+    name: cold start
+    initial_apdl: |
+      upcoord
+      mpdele,50,ep
+    loops:
+      - do: [CYi,1,2]
+      - do: [TPi,1,200]
+        do_params:
+        - {file: 'timepoints.csv', columns: [TP], range: [1, 200]}
+        - {file: 'settings.csv', columns: [NSBSTP, NSBMX, NSBMN], range: [1, 200]}
+    params: {start: cs, job_name1: {{r.job_name1}}, job_name2: '%start%_c%cy%_t%tp%'}
+    apdl: {{self.prev}}
+    rules: {{self.prev}}
+
+  - id: spdonly
+    name: speed only
+    initial_apdl: {{self.prev}}
+    loops:
+      - do: [CYi,2,2]
+      - do: [TPi,201,201]
+        do_params: {{self.prev.do_params}}
+    params: {start: cs, job_name1: {{r.job_name1}}, job_name2: '%start%_c%cy%_t%tp%'}
+    apdl: {{self.prev}}
+    rules: {{self.prev}}
+
+  - id: spdpres
+    name: speed and pressure
+    initial_apdl: {{self.prev}}
+    loops:
+      - do: [CYi,2,2]
+      - do: [TPi,202,202]
+        do_params: {{self.prev.do_params}}
+    params: {{self.prev}}
+    apdl: {{self.prev}}    
+    rules: {{self.prev}}
