@@ -343,8 +343,11 @@ eplo
         cm,CM_NAME,node
     *ENDDO
 
-    ! esel,s,TYPE,,CHILD_ET
-    ! edele,all
+    nsel,s,,,PARENT_N_OFF+1,PARENT_N_OFF+PARENT_N_COUNT
+    ndele,all
+    esel,s,TYPE,,CHILD_ET
+    edele,all
 *end
 
 *go,:start
+
