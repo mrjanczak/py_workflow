@@ -1,0 +1,168 @@
+! select nodes to map parent components to
+! map child component elements to parent component elements based on proximity
+
+! CM_NAME_PFX = ARG1 ! name prefix of the component
+! TOLER = ARG2     ! tolerance for mapping
+
+resume
+/PREP7
+*afun,deg
+
+esel,s,mat,,2
+NSLE
+nsel,r,ext
+
+CM_NAME_PATTERN = 'bsur000'
+TOLER = .002
+norm_dev = 10 ! degrees
+CM0 = 1
+CM1 = 4
+
+
+! Create child elements 200
+*get,ET_MAX,ETYP,,NUM,MAX
+CHILD_ET = ET_MAX+1
+ESLN
+et,CHILD_ET,MESH200
+type,CHILD_ET
+real,CM1+1
+esurf
+
+esel,s,type,,CHILD_ET
+*get,E_COUNT,ELEM,,COUNT
+*del,CHILD_E_,,nopr $ *dim,CHILD_E_,array,E_COUNT,6
+*vget,CHILD_E_(1,1), ELEM, , ELIST
+*do,Ei,1,E_COUNT
+    E1 = CHILD_E_(Ei,1)
+    CHILD_E_(Ei,2) = CENTRX(E1)
+    CHILD_E_(Ei,3) = CENTRY(E1)
+    CHILD_E_(Ei,4) = 0
+*enddo
+
+! Create parent elements 200
+*get,ET_MAX,ETYP,,NUM,MAX
+PARENT_ET = ET_MAX+1
+*do,CMi,CM0,CM1
+    CMi_s = CHRVAL(CMi)
+    CM_NAME = STRFILL(CM_NAME_PATTERN, CMi_s, STRLENG(CM_NAME_PATTERN)-STRLENG(CMi_s)+1) 
+    *get,CM_TYPE,COMP,CM_NAME,TYPE
+    *if,CM_TYPE,ne,1,then
+        *msg,ERROR, 'Component %CM_NAME% does not exist or is not nodal'
+        %C
+        *cycle
+    *endif
+
+    cmsel,s,CM_NAME
+    esln
+    *get,ET_MAX,ETYP,,NUM,MAX
+    et,PARENT_ET,MESH200
+    type,PARENT_ET
+    real, CMi
+    esurf
+*ENDDO
+
+! Map child elements to parent elements
+esel,s,TYPE,,PARENT_ET
+nsle
+*MOPER, CHILD_E_(1,5), CHILD_E_(1,2), NNEAR, TOLER
+
+*do,Ei,1,E_COUNT
+    E1 = CHILD_E_(Ei,1)
+    E1x = CHILD_E_(Ei,2)
+    E1y = CHILD_E_(Ei,3)
+    E1_N1 = NELEM(E1,1)
+    E1_N2 = NELEM(E1,2)
+    E1_N1x = NX(E1_N1)
+    E1_N1y = NY(E1_N1)
+    E1_N2x = NX(E1_N2)
+    E1_N2y = NY(E1_N2)
+    v00x = E1_N2x - E1_N1x
+    v00y = E1_N2y - E1_N1y
+
+    N2 = CHILD_E_(Ei,5)
+    *if,N2,eq,0,cycle
+
+    PARENT_RCON = 0
+    ! check nearby parent elements
+    *do,LOCi,1,2
+        E2 = ENEXTN(N2,LOCi)
+        *if,E2,eq,0,cycle
+
+        E2_N1 = NELEM(E2,1)
+        E2_N2 = NELEM(E2,2)
+
+        E2_N1x = NX(E2_N1)
+        E2_N1y = NY(E2_N1)
+        E2_N2x = NX(E2_N2)
+        E2_N2y = NY(E2_N2)
+
+        v0x = E2_N2x - E2_N1x
+        v0y = E2_N2y - E2_N1y
+        v1x = E1x -    E2_N1x
+        v1y = E1y -    E2_N1y
+        v2x = E1x -    E2_N2x
+        v2y = E1y -    E2_N2y
+
+        cross0 = v0x*v00y-v0y*v00x    
+        dot0 =   v0x*v00x+v0y*v00y     
+        alf0 = abs(atan2(cross0, dot0))
+
+        cross1 = v0x*v1y-v0y*v1x    
+        dot1 =   v0x*v1x+v0y*v1y     
+        alf1 = abs(atan2(cross1, dot1))
+
+        cross2 = v0x*v2y-v0y*v2x    
+        dot2 =   v0x*v2x+v0y*v2y     
+        alf2 = abs(atan2(cross2, dot2))
+
+        ! check if projection falls within the parent element
+        *if,alf1,le,90,and,alf2,ge,90,then
+            E1_over_E2 = 1
+        *ELSE
+            E1_over_E2 = 0
+        *endif
+        norm_dev_%LOCi% = alf0
+        *if,alf0,le,norm_dev, and, E1_over_E2,eq,1,then
+            ! map child element to parent element
+            PARENT_RCON = EATT(E2, 3)
+            CHILD_E_(Ei,6) = PARENT_RCON
+            *exit          
+        *endif
+    *enddo
+    ! if no suitable parent found, map to the closest one
+    *if,PARENT_RCON,eq,0,then
+        E2 = 0
+        *if, norm_dev_1, lt, norm_dev_2, and, norm_dev_1, le, norm_dev, then
+            E2 = ENEXTN(N2,1)
+        *elseif, norm_dev_2, lt, norm_dev_1, and, norm_dev_2, le, norm_dev, then
+            E2 = ENEXTN(N2,2)
+        *endif
+        *if,E2,gt,0,then
+            PARENT_RCON = EATT(E2, 3)
+            CHILD_E_(Ei,6) = PARENT_RCON
+        *endif
+    *endif
+*enddo
+
+esel,s,TYPE,,CHILD_ET
+*do,Ei,1,E_COUNT
+    E1 = CHILD_E_(Ei,1)
+    PARENT_RCON = CHILD_E_(Ei,6)
+    *if,PARENT_RCON,gt,0,then
+        emodif,E1,REAL, PARENT_RCON
+    *endif
+*enddo
+
+*do,CMi,CM0,CM1
+    CMi_s = CHRVAL(CMi)
+    CM_NAME = STRFILL(CM_NAME_PATTERN, CMi_s, STRLENG(CM_NAME_PATTERN)-STRLENG(CMi_s)+1) 
+    esel,s,TYPE,,CHILD_ET
+    esel,r,REAL,,CMi
+    nsle
+    cm,CM_NAME,node
+*ENDDO
+
+esel,s,ename,,200
+nsle
+/PNUM,REAL,1
+eplo
