@@ -24,7 +24,8 @@ nsle
 eplo
 
 /eof
-
+! ---------------------------------
+! Create macros to get parent component data and map child elements
 ! ---------------------------------
 *create,_util_get_parent_cms,mac
     ! desc: Get parent component data and create parent elements
@@ -33,9 +34,9 @@ eplo
     ! N0x,N0y, CM1,N1x,N1y, CM2,N2x,N2y
     !
     ! ```
-    !   CM1    CM2
-    ! x-----x-----x
-    ! N1    N0    N2
+    !   CM1    CM2       CM1        CM2
+    ! x-----o-----x  , x-----o  , o-----x 
+    ! N1    N0    N2   N1    N0   N0    N2
     ! ```
 
     _PARENT_DATA = ARG1 ! name of the array to store parent component data
@@ -132,7 +133,6 @@ eplo
 (8E8.3)
     *cfclos
 *end
-! ---------------------------------
 
 *create,_util_map_parent_cms,mac
     ! desc: Map parent components on child elements
@@ -143,6 +143,7 @@ eplo
     CM1 =             ARG4 ! last component index
     TOLER =           ARG5 ! tolerance of mapping
     NORM_DEV =        ARG6 ! maximum normal deviation in degrees
+    ITER_MAX =        ARG7 ! maximum number of iterations to assign parent components
 
     /PREP7
     *afun,deg
@@ -150,6 +151,16 @@ eplo
     *get,_PARENT_DATA_TYPE,PARM,,TYPE
     *if,_PARENT_DATA_TYPE,eq,0,then
         _PARENT_DATA = 'PARENT_DATA_'
+    *endif
+
+    *if,TOLER,eq,0,then
+        TOLER = 1e-3
+    *endif
+    *if,NORM_DEV,eq,0,then
+        NORM_DEV = 15
+    *endif
+    *if,ITER_MAX,eq,0,then
+        ITER_MAX = 3
     *endif
 
     ! Read parent data
@@ -200,7 +211,6 @@ eplo
     esel,s,TYPE,,PARENT_ET
     nsle
     *MOPER, CHILD_E_(1,7), CHILD_E_(1,2), NNEAR, TOLER
-
     *do,Ei,1,E_COUNT
         ! Child element E1
         E1 =  CHILD_E_(Ei,1)
@@ -283,9 +293,14 @@ eplo
     *enddo
 
     ! If not mapped, get component from adjacent element
-    *do,Ei,1,E_COUNT
-        PARENT_CMi = CHILD_E_(Ei,8)
-        *if,PARENT_CMi,eq,0,then
+    COUNTER0 = 0
+    COUNTER1 = 0
+    *do,ITERi,1,ITER_MAX
+        *do,Ei,1,E_COUNT
+            PARENT_CMi = CHILD_E_(Ei,8)
+            *if,PARENT_CMi,gt,0,CYCLE
+
+            COUNTER1 = COUNTER1 + 1
             E1 = CHILD_E_(Ei,1)
             v00x = CHILD_E_(Ei,5)
             v00y = CHILD_E_(Ei,6)
@@ -312,8 +327,11 @@ eplo
                     *exit                            
                 *endif
             *enddo
-        *endif
-    *enddo    
+        *enddo   
+        *if,COUNTER1,eq,COUNTER0,exit
+        COUNTER0 = COUNTER1
+        COUNTER1 = 0
+    *enddo 
 
     ! Create child components
     *do,CMi,CM0,CM1
@@ -328,5 +346,5 @@ eplo
     ! esel,s,TYPE,,CHILD_ET
     ! edele,all
 *end
+
 *go,:start
-! ---------------------------------
