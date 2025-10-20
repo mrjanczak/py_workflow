@@ -16,7 +16,7 @@ nsel,r,ext
 
 _util_get_parent_cms,'PARENT_DATA_','bsur000',1,4
 
-_util_map_parent_cms,'PARENT_DATA_','bsur000',1,4,.002,15
+!_util_map_parent_cms,'PARENT_DATA_','bsur000',1,4,.002,15
 
 esel,s,ename,,200
 nsle
@@ -30,7 +30,7 @@ eplo
 *create,_util_get_parent_cms,mac
     ! desc: Get parent component data and create parent elements
 
-    ! notes: Array PARENT_DATA contains data of pairs of adjacent elements attached to each node:
+    ! notes: Array FACES_DATA contains data of pairs of adjacent faces attached to common node:
     ! N0x,N0y, CM1,N1x,N1y, CM2,N2x,N2y
     !
     ! ```
@@ -39,24 +39,28 @@ eplo
     ! N1    N0    N2   N1    N0   N0    N2
     ! ```
 
-    _PARENT_DATA = ARG1 ! name of the array to store parent component data
-    CM_NAME_PATTERN = ARG2 ! component name pattern, e.g. 'bsur000'
-    CM0 = ARG3 ! first component index
-    CM1 = ARG4 ! last component index
+    CM_PATTERN =   ARG1 ! component name pattern, e.g. 'bsur000'
+    CM0 =          ARG2 ! first component index
+    CM1 =          ARG3 ! last component index
+    DATA_FILE =    ARG4 ! name of the array to store parent component data
 
-    *get,_PARENT_DATA_TYPE,PARM,,TYPE
-    *if,_PARENT_DATA_TYPE,eq,0,then
-        _PARENT_DATA = 'PARENT_DATA_'
+    ! Default values
+    *get,DATA_FILE_TYPE,PARM, DATA_FILE,TYPE
+    *if,DATA_FILE_TYPE,eq,0,then
+        DATA_FILE = CM_PATTERN
     *endif
 
     ! Create parent elements 200 with real = component index
     *get,ET_MAX,ETYP,,NUM,MAX
     PARENT_ET = ET_MAX+1
 
-    *del,CM_DATA_,,nopr $ *dim,CM_DATA_,array,CM1,4 ! parent columns: 1=count, 2=length, child columns: 3=count, 4=length
+    *del,CM_DATA_,,nopr $ *dim,CM_DATA_,array,CM1,5 ! parent columns: 1=count, 2=length, child columns: 3=count, 4=length, 5 ratio
     *do,CMi,CM0,CM1
-        CMi_s = CHRVAL(CMi)
-        CM_NAME = STRFILL(CM_NAME_PATTERN, CMi_s, STRLENG(CM_NAME_PATTERN)-STRLENG(CMi_s)+1) 
+        CM_NAME = CM_PATTERN
+        *if,CMi,gt,0,then
+            CMi_s = CHRVAL(CMi)
+            CM_NAME = STRFILL(CM_NAME, CMi_s, STRLENG(CM_NAME)-STRLENG(CMi_s)+1) 
+        *endif
         *get,CM_TYPE,COMP,CM_NAME,TYPE
         *if,CM_TYPE,ne,1,then
             *msg,ERROR, 'Component %CM_NAME% does not exist or is not nodal'
@@ -92,7 +96,7 @@ eplo
     *VMASK,ET_SEL_ $ *VSCFUN,ET_COUNT, SUM, ET_SEL_(1)
     *VMASK,ET_SEL_ $ *VSCFUN,ET_LEN_SUM, SUM, ET_LEN_(1)
 
-    *if,ET_COUNT,ne,TOTAL_CM_COUNT,then
+    *if,ET_COUNT,ne,TOTAL_CM_COUNT, and, ET_LEN_SUM,gt,0, then
         LEN_RATIO = (TOTAL_CM_LEN-ET_LEN_SUM) / ET_LEN_SUM
         *msg,WARNING, TOTAL_CM_COUNT-ET_COUNT, LEN_RATIO
         %I elements overlaps between components (overlaping length ratio %E). 
@@ -101,14 +105,14 @@ eplo
     ! Get parent elements attached to each node
     nsle
     *get,N_COUNT,NODE,,COUNT
-    *del,%_PARENT_DATA%,,nopr $ *dim,%_PARENT_DATA%,array,N_COUNT,8
+    *del,FACES_DATA_,,nopr $ *dim,FACES_DATA_,array,N_COUNT,8
     *del,N0_,,nopr $ *dim,N0_,array,N_COUNT
     !  N0x,N0y, CM1,N1x,N1y, CM2,N2x,N2y
     *VGET, N0_(1), NODE, ,NLIST
     *do,Ni,1,N_COUNT
         N0 = N0_(Ni)
-        %_PARENT_DATA%(Ni,1) = NX(N0)
-        %_PARENT_DATA%(Ni,2) = NY(N0)
+        FACES_DATA_(Ni,1) = NX(N0)
+        FACES_DATA_(Ni,2) = NY(N0)
         
         *del,E_,,nopr $ *dim,E_,array,2
         *del,N_,,nopr $ *dim,N_,array,2,2
@@ -120,39 +124,44 @@ eplo
             *if,E2_N1,eq,N0,then
                 E2_N1 = E2_N2
             *endif        
-            %_PARENT_DATA%(Ni,2+(LOCi-1)*3+1) = EATT(E2, 3)
-            %_PARENT_DATA%(Ni,2+(LOCi-1)*3+2) = NX(E2_N1)
-            %_PARENT_DATA%(Ni,2+(LOCi-1)*3+3) = NY(E2_N1)
+            FACES_DATA_(Ni,2+(LOCi-1)*3+1) = EATT(E2, 3)
+            FACES_DATA_(Ni,2+(LOCi-1)*3+2) = NX(E2_N1)
+            FACES_DATA_(Ni,2+(LOCi-1)*3+3) = NY(E2_N1)
         *enddo
     *enddo
 
     esel,s,type,,PARENT_ET
     edele,all
-    *cfopen,_PARENT_DATA,inp
-    *vwrite,%_PARENT_DATA%(1,1),%_PARENT_DATA%(1,2),%_PARENT_DATA%(1,3),%_PARENT_DATA%(1,4),%_PARENT_DATA%(1,5),%_PARENT_DATA%(1,6),%_PARENT_DATA%(1,7),%_PARENT_DATA%(1,8)
+    *cfopen,'%DATA_FILE%',inp
+    *vwrite,FACES_DATA_(1,1),FACES_DATA_(1,2),FACES_DATA_(1,3),FACES_DATA_(1,4),FACES_DATA_(1,5),FACES_DATA_(1,6),FACES_DATA_(1,7),FACES_DATA_(1,8)
 (8E8.3)
     *cfclos
+    *cfopen,'%DATA_FILE%_CM',inp
+    *vwrite,CM_DATA_(1,1),CM_DATA_(1,2),0,0,0
+(5E8.3)
+    *cfclos    
 *end
 
 *create,_util_map_parent_cms,mac
     ! desc: Map parent components on child elements
 
-    _PARENT_DATA =    ARG1 ! name of the array to store parent component data
-    CM_NAME_PATTERN = ARG2 ! component name pattern, e.g. 'bsur000'
-    CM0 =             ARG3 ! first component index
-    CM1 =             ARG4 ! last component index
+    CM_PATTERN =      ARG1 ! component name pattern, e.g. 'bsur000'
+    CM0 =             ARG2 ! first component index
+    CM1 =             ARG3 ! last component index
+    DATA_FILE =       ARG4 ! name of the array to store parent component data
     TOLER =           ARG5 ! tolerance of mapping
     NORM_DEV =        ARG6 ! maximum normal deviation in degrees
     ITER_MAX =        ARG7 ! maximum number of iterations to assign parent components
+    EXCLUDE_CM =      ARG8 ! name of nodal component with region excluded from mapping
 
     /PREP7
     *afun,deg
 
-    *get,_PARENT_DATA_TYPE,PARM,,TYPE
-    *if,_PARENT_DATA_TYPE,eq,0,then
-        _PARENT_DATA = 'PARENT_DATA_'
+    ! Default values
+    *get,DATA_FILE_TYPE,PARM, DATA_FILE,TYPE
+    *if,DATA_FILE_TYPE,eq,0,then
+        DATA_FILE = CM_PATTERN
     *endif
-
     *if,TOLER,eq,0,then
         TOLER = 1e-3
     *endif
@@ -162,24 +171,29 @@ eplo
     *if,ITER_MAX,eq,0,then
         ITER_MAX = 3
     *endif
+    *get,EXCLUDE_CM_TYPE,PARM, EXCLUDE_CM,TYPE
 
     ! Read parent data
-    /INQUIRE,DATA_EXIST,EXIST,%_PARENT_DATA%,inp
-    *if,DATA_EXIST,eq,0,then
+    /INQUIRE,DATA_EXIST,EXIST,   '%DATA_FILE%',inp
+    /INQUIRE,CM_DATA_EXIST,EXIST,'%DATA_FILE%_CM',inp
+    *if,DATA_EXIST*CM_DATA_EXIST,eq,0,then
         *msg,ERRROR, _PARENT_DATA
-        %C Parent data %_PARENT_DATA% does not exist. Run _util_get_parent_cms first.
+        %C Parent data %DATA_FILE% or %DATA_FILE%_CM does not exist. Run _util_get_parent_cms first.
     *endif
-    /INQUIRE,N_COUNT,SIZE,%_PARENT_DATA%,inp
-    *del,%_PARENT_DATA%,,nopr $ *dim,%_PARENT_DATA%,array,N_COUNT,8
-    *vread,%_PARENT_DATA%(1,1),_PARENT_DATA,inp,,jik,8,N_COUNT
+    /INQUIRE,PARENT_N_COUNT,SIZE,'%DATA_FILE%',inp
+    *del,FACES_DATA_,,nopr $ *dim,FACES_DATA_,array,PARENT_N_COUNT,8
+    *vread,FACES_DATA_(1,1),'%DATA_FILE%',inp,,jik,8,PARENT_N_COUNT
 (8E8.3)    
+    /INQUIRE,N_COUNT,SIZE,'%DATA_FILE%_CM',inp
+    *del,CM_DATA_,,nopr $ *dim,CM_DATA_,array,N_COUNT,5
+    *vread,CM_DATA_(1,1), '%DATA_FILE%_CM',inp,,jik,5,N_COUNT
+(5E8.3) 
 
     ! Create parent nodes based on parent component data
-    *get,PARENT_N_COUNT,PARM, %_PARENT_DATA%, DIM, 1
     *get,PARENT_N_OFF,NODE,,NUM,MAX
     *do,Ni,1,PARENT_N_COUNT
-        N0x = %_PARENT_DATA%(Ni,1)
-        N0y = %_PARENT_DATA%(Ni,2)
+        N0x = FACES_DATA_(Ni,1)
+        N0y = FACES_DATA_(Ni,2)
         N,Ni+PARENT_N_OFF,N0x,N0y
     *enddo
 
@@ -224,18 +238,18 @@ eplo
         *if,N1,eq,0,cycle
 
         Ni = N1 - PARENT_N_OFF
-        N1x = %_PARENT_DATA%(Ni,1)
-        N1y = %_PARENT_DATA%(Ni,2)
+        N1x = FACES_DATA_(Ni,1)
+        N1y = FACES_DATA_(Ni,2)
 
         ! Get parent elemets attached to this node
         norm_dev_1 = 1e3
         norm_dev_2 = 1e3
         *do,LOCi,1,2
-            PARENT_CMi = %_PARENT_DATA%(Ni,2+(LOCi-1)*3+1)
+            PARENT_CMi = FACES_DATA_(Ni,2+(LOCi-1)*3+1)
             *if,PARENT_CMi,eq,0,cycle
 
-            N2x = %_PARENT_DATA%(Ni,2+(LOCi-1)*3+2)
-            N2y = %_PARENT_DATA%(Ni,2+(LOCi-1)*3+3)
+            N2x = FACES_DATA_(Ni,2+(LOCi-1)*3+2)
+            N2y = FACES_DATA_(Ni,2+(LOCi-1)*3+3)
 
             v0x = N2x - N1x
             v0y = N2y - N1y
@@ -278,7 +292,7 @@ eplo
             *elseif, norm_dev_2, lt, norm_dev_1, and, norm_dev_2, le, norm_dev, then
                 LOCi = 2
             *endif
-            CHILD_E_(Ei,8) = %_PARENT_DATA%(Ni,2+(LOCi-1)*3+1)
+            CHILD_E_(Ei,8) = FACES_DATA_(Ni,2+(LOCi-1)*3+1)
         *endif
     *enddo
 
@@ -335,13 +349,49 @@ eplo
 
     ! Create child components
     *do,CMi,CM0,CM1
-        CMi_s = CHRVAL(CMi)
-        CM_NAME = STRFILL(CM_NAME_PATTERN, CMi_s, STRLENG(CM_NAME_PATTERN)-STRLENG(CMi_s)+1) 
+        CM_NAME = CM_PATTERN
+        *if,CMi,gt,0,then
+            CMi_s = CHRVAL(CMi)
+            CM_NAME = STRFILL(CM_NAME, CMi_s, STRLENG(CM_NAME)-STRLENG(CMi_s)+1) 
+        *endif
         esel,s,TYPE,,CHILD_ET
         esel,r,REAL,,CMi
+        *if,EXCLUDE_CM_TYPE,ne,0,then
+            cmsel,s,EXCLUDE_CM
+            esln,u
+        *endif
         nsle
         cm,CM_NAME,node
-    *ENDDO
+
+        *VGET, CM_SEL_, ELEM, ,NSEL
+        *VMASK,CM_SEL_ $ *VGET, CM_LEN_, ELEM, ,GEOM
+        *VMASK,CM_SEL_ $ *VSCFUN,CM_COUNT, SUM, CM_SEL_(1)
+        *VMASK,CM_SEL_ $ *VSCFUN,CM_LEN_SUM, SUM, CM_LEN_(1)
+        PAR_CM_COUNT =   CM_DATA_(CMi,1)
+        PAR_CM_LEN_SUM = CM_DATA_(CMi,2)
+        CM_LEN_RATIO =   0
+       *if,PAR_CM_LEN_SUM,gt,TOLER,then
+            CM_LEN_RATIO = CM_LEN_SUM / PAR_CM_LEN_SUM
+        *endif
+        CM_DATA_(CMi,3) = CM_COUNT   
+        CM_DATA_(CMi,4) = CM_LEN_SUM
+        CM_DATA_(CMi,5) = CM_LEN_RATIO
+        *vwrite, CM_NAME, PAR_CM_LEN_SUM, CM_LEN_SUM, CM_LEN_RATIO
+        Component %s: Parent length=%E, Child length=%E, Length ratio=%E
+     *ENDDO
+    *VSCFUN,PARENT_CM_LEN,   SUM, CM_DATA_(1,2)
+    *VSCFUN,CHILD_CM_LEN,    SUM, CM_DATA_(1,4)
+    TOTAL_LEN_RATIO = CHILD_CM_LEN / PARENT_CM_LEN
+    *vwrite, PARENT_CM_LEN, CHILD_CM_LEN, TOTAL_LEN_RATIO
+    ------------------------------------------ %/&
+    Total parent component length=%E, Total child component length=%E, Length ratio=%E
+
+    ! Check effectivness of mapping
+    esel,s,TYPE,,CHILD_ET
+    *VGET, ET_SEL_, ELEM, ,NSEL
+    *VMASK,ET_SEL_ $ *VGET,  ET_LEN_, ELEM, ,GEOM
+    *VMASK,ET_SEL_ $ *VSCFUN,ET_COUNT, SUM, ET_SEL_(1)
+    *VMASK,ET_SEL_ $ *VSCFUN,ET_LEN_SUM, SUM, ET_LEN_(1)
 
     nsel,s,,,PARENT_N_OFF+1,PARENT_N_OFF+PARENT_N_COUNT
     ndele,all
@@ -350,4 +400,3 @@ eplo
 *end
 
 *go,:start
-
